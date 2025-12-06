@@ -26,10 +26,10 @@ class FotMobDailyScraper:
         try:
             # Tentative de récupération sécurisée (avec timeout)
             r = tls_requests.get("http://46.101.91.154:6006/", timeout=5) 
-            r.raise_for_status()
+            r.raise_for_status() # Lève une erreur si le statut est 4xx ou 5xx
             result = r.json()
             session.headers.update(result)
-            # LOGGER("✅ Headers de session récupérés via le serveur tiers.") # Commenté pour éviter le spam Vercel
+            # LOGGER("✅ Headers de session récupérés via le serveur tiers.") # Commenté pour Vercel
         except Exception:
             # Ajout d'un User-Agent générique en cas d'échec
             session.headers.update({
@@ -60,7 +60,7 @@ class FotMobDailyScraper:
             all_matches = []
             
             for item in data:
-                if isinstance(item, dict) and (item.get("type") == "Match" or item.get('events')):
+                if isinstance(item, dict) and item.get('events'):
                     for match in item.get('events', []):
                         all_matches.append({
                             "league": item.get("name"),
@@ -95,15 +95,12 @@ class FotMobDailyScraper:
 
 # --- Application Flask pour Vercel ---
 
-# 🎯 CORRECTION CRITIQUE: Vercel cherche la variable 'app'.
-# --- Application Flask pour Vercel ---
-
+# 1. Vercel cherche la variable 'app'.
 app = Flask(__name__)
 
-# 🎯 CORRECTION: La route DOIT être la racine (/)
+# 2. 🎯 CORRECTION: La route DOIT être la racine (/) pour le fichier d'API
 @app.route('/', methods=['GET'])
 def get_daily_matches():
-    # ... (le reste de la fonction)
     """Endpoint de l'API pour récupérer les matchs d'une date spécifique.
     Accès via: /api/matches?date=YYYYMMDD
     """
@@ -127,7 +124,6 @@ def get_daily_matches():
             }), 404
         
         # 3. Convertir le DataFrame en JSON et le renvoyer
-        # Utiliser l'orient='records' pour une liste de dictionnaires JSON propre
         return jsonify(df.to_dict(orient='records')), 200
 
     except Exception:
