@@ -5,30 +5,32 @@ import curl_cffi.requests as tls_requests
 import json
 from flask import Flask, jsonify, request
 from typing import Any
-import os # Ajout de os pour manipuler les fichiers si nécessaire
+import os 
 
 # --- Logique d'Extraction (La classe FotMobDailyScraper) ---
-# (Reste inchangé)
-# ...
 
 FOTMOB_API = "https://www.fotmob.com/api"
 LOGGER = print
 
 class FotMobDailyScraper:
-    # ... (Le contenu de la classe FotMobDailyScraper reste inchangé) ...
+    """Contient la logique d'extraction de données de Fotmob."""
+    
     def __init__(self, target_date_str: str):
         self.target_date_str = target_date_str
         self.session: tls_requests.Session = self._init_session()
         
     def _init_session(self) -> tls_requests.Session:
+        """Initialise la session TLS et récupère les headers d'authentification."""
         session = tls_requests.Session()
         
         try:
+            # Tentative de récupération sécurisée (avec timeout)
             r = tls_requests.get("http://46.101.91.154:6006/", timeout=5) 
             r.raise_for_status() 
             result = r.json()
             session.headers.update(result)
         except Exception:
+            # Ajout d'un User-Agent générique en cas d'échec
             session.headers.update({
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             })
@@ -36,6 +38,8 @@ class FotMobDailyScraper:
         return session
 
     def fetch_daily_schedule(self) -> pd.DataFrame:
+        """Récupère et formate les matchs pour la date ciblée, avec une gestion robuste des structures JSON."""
+        
         url = (
             f"{FOTMOB_API}/data/matches?date={self.target_date_str}"
             f"&timezone=Europe%2FParis&ccode3=FRA"
@@ -46,16 +50,26 @@ class FotMobDailyScraper:
             response.raise_for_status()
             data = response.json()
             
+            # --- Gestion de la structure JSON (Rendue plus robuste) ---
+            
+            # 1. Tenter d'accéder à la clé 'leagues' si le retour est un dictionnaire
             if isinstance(data, dict) and 'leagues' in data:
                 data = data['leagues']
+            # 2. Si ce n'est toujours pas une liste, échouer (la structure doit être list[ligue] ou dict.leagues -> list[ligue])
             elif not isinstance(data, list):
                 return pd.DataFrame()
             
             all_matches = []
             
+            # 3. Boucler sur les éléments de niveau supérieur (qui sont généralement des ligues)
             for item in data:
+                # 🎯 Le cœur de la correction : Vérifier si l'élément contient des 'events' 
+                # (matchs) dans sa structure, indépendamment de la clé 'type'.
                 if isinstance(item, dict) and item.get('events'):
+                    
+                    # 4. Boucler sur tous les matchs trouvés dans cette ligue/section
                     for match in item.get('events', []):
+                        # 5. Extraction des données (La logique d'extraction des champs est correcte)
                         all_matches.append({
                             "league": item.get("name"),
                             "country": item.get("country"),
@@ -70,6 +84,7 @@ class FotMobDailyScraper:
             if not all_matches:
                 return pd.DataFrame()
 
+            # Création du DataFrame et Nettoyage (Inchangé)
             df = pd.DataFrame(all_matches)
             df['date'] = pd.to_datetime(df['date_time_utc'], utc=True)
             df.drop(columns=['date_time_utc'], inplace=True)
@@ -81,6 +96,7 @@ class FotMobDailyScraper:
             return df.sort_values(by='date')
         
         except Exception:
+            # Capture tous les échecs (HTTP, JSON, connexion)
             return pd.DataFrame()
 
 
@@ -90,9 +106,7 @@ app = Flask(__name__)
 
 @app.route('/api/matches', methods=['GET'])
 def get_daily_matches():
-    """Endpoint de l'API pour récupérer les matchs d'une date spécifique.
-    Accès via: /api/matches?date=YYYYMMDD
-    """
+    """Endpoint de l'API pour récupérer les matchs d'une date spécifique."""
     
     target_date = request.args.get('date')
     
@@ -113,17 +127,16 @@ def get_daily_matches():
         # 1. Préparer les données au format JSON
         data_json = df.to_dict(orient='records')
         
-        # 2. 🎯 ÉCRITURE DU FICHIER JSON SUR DISQUE (LOCALEMENT SEULEMENT)
+        # 2. ÉCRITURE DU FICHIER JSON SUR DISQUE (fonctionnalité locale maintenue)
         output_filename = f"fotmob_matches_{target_date}.json"
         try:
             with open(output_filename, 'w', encoding='utf-8') as f:
                 json.dump(data_json, f, indent=4)
-            # LOGGER(f"💾 JSON sauvegardé temporairement dans {output_filename}.")
         except Exception:
-            # Cette erreur sera ignorée car l'API doit continuer à fonctionner
+            # Ignore les échecs d'écriture sur les plateformes Serverless
             pass
         
-        # 3. Renvoyer le fichier JSON via la réponse HTTP (C'EST LE VRAI OBJECTIF)
+        # 3. Renvoyer le fichier JSON via la réponse HTTP
         return jsonify(data_json), 200
 
     except Exception:
