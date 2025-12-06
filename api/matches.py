@@ -1,4 +1,4 @@
-# api/matches.py
+# api/matches.py (VERSION CORRIGÉE AVEC LA LOGIQUE ROBUSTE)
 
 import pandas as pd
 import curl_cffi.requests as tls_requests
@@ -13,24 +13,19 @@ FOTMOB_API = "https://www.fotmob.com/api"
 LOGGER = print
 
 class FotMobDailyScraper:
-    """Contient la logique d'extraction de données de Fotmob."""
     
     def __init__(self, target_date_str: str):
         self.target_date_str = target_date_str
         self.session: tls_requests.Session = self._init_session()
         
     def _init_session(self) -> tls_requests.Session:
-        """Initialise la session TLS et récupère les headers d'authentification."""
         session = tls_requests.Session()
-        
+        # Logique de récupération des headers (inchangée)
         try:
-            # Tentative de récupération sécurisée (avec timeout)
             r = tls_requests.get("http://46.101.91.154:6006/", timeout=5) 
             r.raise_for_status() 
-            result = r.json()
-            session.headers.update(result)
+            session.headers.update(r.json())
         except Exception:
-            # Ajout d'un User-Agent générique en cas d'échec
             session.headers.update({
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             })
@@ -38,7 +33,7 @@ class FotMobDailyScraper:
         return session
 
     def fetch_daily_schedule(self) -> pd.DataFrame:
-        """Récupère et formate les matchs pour la date ciblée, avec une gestion robuste des structures JSON."""
+        """Récupère et formate les matchs pour la date ciblée, avec une logique robuste."""
         
         url = (
             f"{FOTMOB_API}/data/matches?date={self.target_date_str}"
@@ -50,26 +45,33 @@ class FotMobDailyScraper:
             response.raise_for_status()
             data = response.json()
             
-            # --- Gestion de la structure JSON (Rendue plus robuste) ---
+            # --- DÉBUT DE LA LOGIQUE D'EXTRACTION ROBUSTE (Celle de votre script local) ---
             
-            # 1. Tenter d'accéder à la clé 'leagues' si le retour est un dictionnaire
-            if isinstance(data, dict) and 'leagues' in data:
-                data = data['leagues']
-            # 2. Si ce n'est toujours pas une liste, échouer (la structure doit être list[ligue] ou dict.leagues -> list[ligue])
-            elif not isinstance(data, list):
-                return pd.DataFrame()
+            # Gestion de l'enveloppe JSON si la réponse n'est pas une liste directe
+            if isinstance(data, dict):
+                if 'leagues' in data:
+                    data = data['leagues']
+                elif 'matches' in data: # Gère le cas de la clé 'matches'
+                    data = data['matches']
+                
+            if not isinstance(data, list):
+                 # Si après avoir cherché les clés 'leagues'/'matches' on n'a toujours pas une liste, on échoue.
+                 return pd.DataFrame()
             
             all_matches = []
             
-            # 3. Boucler sur les éléments de niveau supérieur (qui sont généralement des ligues)
             for item in data:
-                # 🎯 Le cœur de la correction : Vérifier si l'élément contient des 'events' 
-                # (matchs) dans sa structure, indépendamment de la clé 'type'.
-                if isinstance(item, dict) and item.get('events'):
-                    
-                    # 4. Boucler sur tous les matchs trouvés dans cette ligue/section
-                    for match in item.get('events', []):
-                        # 5. Extraction des données (La logique d'extraction des champs est correcte)
+                if isinstance(item, dict):
+                    # 1. Traitement des éléments qui sont des Matchs directs (si l'API change)
+                    if item.get("type") == "Match" and item.get("events"):
+                        match_source = item.get("events", [])
+                    # 2. Traitement des éléments qui sont des Ligues/Sections (le cas le plus fréquent)
+                    elif item.get('events'):
+                        match_source = item['events']
+                    else:
+                        continue # Passe à l'élément suivant si pas d'événements
+                        
+                    for match in match_source:
                         all_matches.append({
                             "league": item.get("name"),
                             "country": item.get("country"),
@@ -80,11 +82,13 @@ class FotMobDailyScraper:
                             "score": match.get("status", {}).get("scoreStr"),
                             "match_id": match.get("id"),
                         })
+                        
+            # --- FIN DE LA LOGIQUE D'EXTRACTION ROBUSTE ---
 
             if not all_matches:
                 return pd.DataFrame()
 
-            # Création du DataFrame et Nettoyage (Inchangé)
+            # Création du DataFrame et Nettoyage (inchangé)
             df = pd.DataFrame(all_matches)
             df['date'] = pd.to_datetime(df['date_time_utc'], utc=True)
             df.drop(columns=['date_time_utc'], inplace=True)
@@ -96,7 +100,6 @@ class FotMobDailyScraper:
             return df.sort_values(by='date')
         
         except Exception:
-            # Capture tous les échecs (HTTP, JSON, connexion)
             return pd.DataFrame()
 
 
@@ -106,7 +109,6 @@ app = Flask(__name__)
 
 @app.route('/api/matches', methods=['GET'])
 def get_daily_matches():
-    """Endpoint de l'API pour récupérer les matchs d'une date spécifique."""
     
     target_date = request.args.get('date')
     
@@ -124,21 +126,18 @@ def get_daily_matches():
                 "message": f"Aucun match trouvé pour le {target_date}."
             }), 404
             
-        # 1. Préparer les données au format JSON
         data_json = df.to_dict(orient='records')
         
-        # 2. ÉCRITURE DU FICHIER JSON SUR DISQUE (fonctionnalité locale maintenue)
+        # Le code d'écriture de fichier est conservé mais ignoré sur Vercel
         output_filename = f"fotmob_matches_{target_date}.json"
         try:
             with open(output_filename, 'w', encoding='utf-8') as f:
                 json.dump(data_json, f, indent=4)
         except Exception:
-            # Ignore les échecs d'écriture sur les plateformes Serverless
             pass
         
-        # 3. Renvoyer le fichier JSON via la réponse HTTP
+        # Renvoyer le JSON au client
         return jsonify(data_json), 200
 
     except Exception:
-        # Erreur Serverless générique
         return jsonify({"error": "Erreur interne du serveur lors de l'extraction des données."}), 500
