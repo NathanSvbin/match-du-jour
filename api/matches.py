@@ -96,11 +96,14 @@ class FotMobDailyScraper:
 # --- Application Flask pour Vercel ---
 
 # 🎯 CORRECTION CRITIQUE: Vercel cherche la variable 'app'.
+# --- Application Flask pour Vercel ---
+
 app = Flask(__name__)
 
-# 🎯 CORRECTION CRITIQUE: La route DOIT être '/' car le fichier est déjà à l'emplacement /api/matches
+# 🎯 CORRECTION: La route DOIT être la racine (/)
 @app.route('/', methods=['GET'])
 def get_daily_matches():
+    # ... (le reste de la fonction)
     """Endpoint de l'API pour récupérer les matchs d'une date spécifique.
     Accès via: /api/matches?date=YYYYMMDD
     """
