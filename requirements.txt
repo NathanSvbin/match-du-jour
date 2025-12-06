@@ -1,0 +1,9 @@
+# Librairies fondamentales
+Flask>=3.0.0
+pandas>=2.0.0
+
+# Librairie pour le contournement TLS (utilisée dans l'implémentation de FotMob)
+curl-cffi>=0.6.0
+
+# Serveur de production pour le déploiement sur Render, Heroku, etc.
+gunicorn>=21.2.0
