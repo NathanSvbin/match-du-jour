@@ -99,7 +99,7 @@ class FotMobDailyScraper:
 app = Flask(__name__)
 
 # 2. 🎯 CORRECTION: La route DOIT être la racine (/) pour le fichier d'API
-@app.route('/', methods=['GET'])
+@app.route('/api/matches', methods=['GET'])
 def get_daily_matches():
     """Endpoint de l'API pour récupérer les matchs d'une date spécifique.
     Accès via: /api/matches?date=YYYYMMDD
